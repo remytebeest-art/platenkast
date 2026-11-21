@@ -104,7 +104,8 @@ h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 .listen a{color:var(--paper);font-weight:600}
 .act{display:flex;align-items:center;gap:14px;flex-wrap:wrap;margin-top:10px;min-height:56px}
 .msg{font-weight:600;color:var(--muted)}
-.msg.good{color:var(--good)}.msg.bad{color:#ff8a8d}
+.msg.good,.msg.bad{font-size:20px;font-weight:800;padding:10px 18px;border-radius:999px;color:var(--ink)}
+.msg.good{background:var(--good)}.msg.bad{background:var(--bad);color:#fff}
 .btn{background:var(--accent);color:var(--ink);font-weight:800;font-size:19px;padding:13px 26px;border-radius:999px;box-shadow:0 4px 0 var(--ink)}
 .btn:active{transform:translateY(2px);box-shadow:0 2px 0 var(--ink)}
 .btn.ghost{background:transparent;color:var(--paper);border:2px solid var(--paper);box-shadow:none}
@@ -120,9 +121,14 @@ h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 .card .yr{background:var(--c);font-family:var(--display);font-size:calc(var(--cw)*.3);line-height:1;padding:10px 6px 8px;text-align:center;font-variant-numeric:tabular-nums}
 .card .tx{padding:8px 9px 10px;display:flex;flex-direction:column;gap:3px;font-size:13px;line-height:1.2;overflow-wrap:anywhere}
 .card .tx b{font-weight:800}
-.card.good{outline:4px solid var(--good);animation:pop .45s}
-.card.bad{outline:4px solid var(--bad);animation:shake .45s;opacity:.92}
+.card{position:relative}
+.card.good{outline:5px solid var(--good);box-shadow:0 0 22px var(--good);animation:pop .45s}
+.card.bad{outline:5px solid var(--bad);box-shadow:0 0 22px var(--bad);animation:shake .45s}
+.card.good .yr{background:var(--good)}
 .card.bad .yr{background:var(--bad);color:#fff}
+.card.good::after,.card.bad::after{position:absolute;right:6px;bottom:6px;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:800;font-size:18px;color:#fff}
+.card.good::after{content:"✓";background:var(--good)}
+.card.bad::after{content:"✗";background:var(--bad)}
 @keyframes pop{0%{transform:scale(.7) rotate(-6deg)}70%{transform:scale(1.08)}100%{transform:none}}
 @keyframes shake{20%,60%{transform:translateX(-7px)}40%,80%{transform:translateX(7px)}}
 .slot{
@@ -606,11 +612,12 @@ function render(){
     h+=`<section class="stage"><div class="win"><div class="logo">${solo?(full?"Rij vol!":"Platen op"):esc(w.join(" & "))+(w.length>1?" winnen!":" wint!")}</div>
       <p>${solo?`${best} platen in ${st.turns} beurten.`:(full?`${best} platen op een rij, in de goede volgorde.`:`De stapel is op. Hoogste stand: ${best} platen.`)}</p>
       <div class="act"><button class="btn" data-act="again">Nog een keer</button><button class="btn ghost" data-act="menu">Ander thema</button></div></div></section>`;
-    h+=tl(st.players.find(q=>q.cards.length===best),null);
+    const wp=st.players.find(q=>q.cards.length===best);
+    h+=tl(wp,st.res&&st.res.ok&&wp===st.players[st.turn]?st.res:null);
     g.innerHTML=h;return;
   }
   const s=S[st.cur],res=st.res,q=encodeURIComponent(s.a+" "+s.t);
-  h+=`<section class="stage"><div class="vinyl ${res?"stop":""}" style="${res?"--lab:"+col(s.y):""}"><span>${res?s.y:"?"}</span></div>
+  h+=`<section class="stage"><div class="vinyl ${res?"stop":""}" style="${res?"--lab:var(--"+(res.ok?"good":"bad")+")":""}"><span>${res?s.y:"?"}</span></div>
     <div class="info"><div class="who">${solo?"Jouw beurt":"Beurt voor "+esc(p.name)}</div>
     `;
   if(spOn()&&!res&&!st.reveal){
@@ -626,7 +633,7 @@ function render(){
     h+=st.sel===null?`<span class="msg">Tik in de tijdlijn op de plek waar deze plaat hoort.</span>`
       :`<button class="btn" data-act="ok">Leg hier neer</button><span class="msg">Of tik een andere plek aan.</span>`;
   }else{
-    h+=`<span class="msg ${res.ok?"good":"bad"}">${res.ok?"Goed! De plaat blijft liggen.":"Mis. Het was "+s.y+", de plaat gaat terug."}</span><button class="btn" data-act="next">${res.ok&&p.cards.length>=st.target?"Bekijk de uitslag":"Volgende plaat"}</button>`;
+    h+=`<span class="msg ${res.ok?"good":"bad"}">${res.ok?"✓ Goed! De plaat blijft liggen.":"✗ Fout! Het was "+s.y+", de plaat gaat terug."}</span><button class="btn" data-act="next">${res.ok&&p.cards.length>=st.target?"Bekijk de uitslag":"Volgende plaat"}</button>`;
   }
   h+=`</div></div></section>`+tl(p,res);
   g.innerHTML=h;
