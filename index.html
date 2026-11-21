@@ -692,8 +692,9 @@ async function spFinish(){
 async function api(method,path,body){
   if(Date.now()>(sp.exp||0))await spToken({grant_type:"refresh_token",refresh_token:sp.refresh});
   const r=await fetch("https://api.spotify.com/v1"+path,{method,headers:{Authorization:"Bearer "+sp.access,...(body?{"Content-Type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
-  let j=null;try{const t=await r.text();j=t?JSON.parse(t):null}catch(e){}
-  return{ok:r.ok,status:r.status,j};
+  let j=null,t="";try{t=await r.text();j=t?JSON.parse(t):null}catch(e){}
+  const why=((j&&j.error&&(j.error.message||j.error.reason))||(j?"":t)||"").toString().trim().slice(0,200);
+  return{ok:r.ok,status:r.status,j,why};
 }
 const norm=x=>x.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g,"");
 async function spUri(i){
@@ -701,7 +702,7 @@ async function spUri(i){
   if(sp.uris[k])return sp.uris[k];
   const clean=x=>x.replace(/\(.*?\)/g," ").replace(/[^\p{L}\p{N}'.& ]/gu," ").replace(/\s+/g," ").trim();
   const r=await api("GET","/search?type=track&limit=5&q="+encodeURIComponent(clean(s.t)+" "+clean(s.a)));
-  if(!r.ok)throw new Error("search "+r.status+(r.j&&r.j.error&&r.j.error.message?" ("+r.j.error.message+")":""));
+  if(!r.ok)throw new Error("search "+r.status+(r.why?": "+r.why:""));
   const items=(r.j&&r.j.tracks&&r.j.tracks.items)||[];
   if(!items.length)return null;
   const want=norm(s.a);
@@ -726,7 +727,7 @@ async function spPlay(){
     }
     if(!st||st.cur!==cur)return;
     if(r.status===401){sp={cid:sp.cid};spSave();return say("Spotify-verbinding verlopen. Verbind opnieuw via Stoppen.")}
-    if(!r.ok)return say("Spotify speelt niet af (code "+r.status+(r.j&&r.j.error&&r.j.error.message?": "+r.j.error.message:"")+"). Open de Spotify-app en tik op Speel opnieuw.");
+    if(!r.ok)return say("Spotify speelt niet af (code "+r.status+(r.why?": "+r.why:"")+"). Open de Spotify-app en tik op Speel opnieuw.");
     if(spMsg)say("");
     if((sp.len??30)>0)pauseT=setTimeout(spPause,(sp.len??30)*1000);
   }catch(e){say(spErrMsg(e))}
