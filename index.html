@@ -71,6 +71,7 @@ h2{font-size:13px;letter-spacing:.14em;text-transform:uppercase;color:var(--mute
 .sp .err{color:#ff8a8d;font-weight:600}
 .mini{padding:9px 16px;border-radius:999px;border:2px solid var(--paper);font-weight:800;font-size:15px}
 .ctl{display:flex;gap:8px;flex-wrap:wrap;margin-top:6px}
+.log{font:12px/1.4 ui-monospace,Menlo,monospace;color:var(--muted);background:rgba(0,0,0,.28);padding:8px 10px;border-radius:6px;white-space:pre-wrap;overflow-wrap:anywhere;margin:8px 0 0;max-width:520px}
 
 /* ---------- Spel ---------- */
 #game{height:100%;display:grid;grid-template-rows:auto auto 1fr auto;gap:12px;padding:14px clamp(16px,2.5vw,28px) 16px}
@@ -579,7 +580,7 @@ function newGame(){
 function draw(){
   if(!st.deck.length){st.deck=shuffle(st.discard);st.discard=[]}
   if(!st.deck.length){st.phase="win";st.cur=null;return}
-  st.cur=st.deck.pop();st.sel=null;st.res=null;st.phase="place";st.reveal=false;spMsg="";
+  st.cur=st.deck.pop();st.sel=null;st.res=null;st.phase="place";st.reveal=false;if(spOn())spMsg="";
 }
 function show(){$("setup").hidden=true;$("game").hidden=false;render()}
 function confirmPlace(){
@@ -623,10 +624,12 @@ function render(){
   if(spOn()&&!res&&!st.reveal){
     h+=`<h1 class="title">Welke plaat hoor je?</h1><p class="artist">${esc(spMsg||(spDev?"Speelt af op "+spDev+". ":"")+"Luister en leg hem op zijn plek.")}</p>
     <div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="pause">Pauze</button><button class="mini" data-act="reveal">Toon titel</button></div>`;
+    if(spMsg&&LOG.length)h+=`<pre class="log">${esc(LOG.join("\n"))}</pre>`;
   }else{
     h+=`<h1 class="title">${esc(s.t)}</h1><p class="artist">${esc(s.a)}</p>`;
     h+=spOn()?(res?"":`<div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="pause">Pauze</button></div>`)
-      :`<div class="listen">Luister: <a href="https://open.spotify.com/search/${q}" target="_blank" rel="noopener">Spotify</a><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">YouTube</a></div>`;
+      :`<div class="listen">Luister: <a href="https://open.spotify.com/search/${q}" target="_blank" rel="noopener">Spotify</a><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">YouTube</a></div>`
+       +(!res&&spMsg?`<p class="artist" style="color:#ff8a8d;font-size:17px">${esc(spMsg)}</p>`+(LOG.length?`<pre class="log">${esc(LOG.join("\n"))}</pre>`:""):"");
   }
   h+=`<div class="act">`;
   if(!res){
@@ -666,7 +669,15 @@ $("game").addEventListener("click",e=>{
 
 /* ---------- Spotify: stuurt de Spotify-app op dit apparaat aan ---------- */
 function spSave(){try{localStorage.setItem("platenkast-sp",JSON.stringify(sp))}catch(e){}}
+function spSync(){try{const x=JSON.parse(localStorage.getItem("platenkast-sp")||"null");if(x&&x.cid)sp=x}catch(e){}}
 function spOn(){return !!sp.refresh}
+const LOG=[];
+function logc(s){LOG.push(new Date().toLocaleTimeString("nl-NL")+"  "+s);if(LOG.length>8)LOG.shift()}
+let refreshing=null;
+function spRefresh(){
+  if(!refreshing)refreshing=spToken({grant_type:"refresh_token",refresh_token:sp.refresh}).finally(()=>{refreshing=null});
+  return refreshing;
+}
 function rnd(n){const c="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";return Array.from(crypto.getRandomValues(new Uint8Array(n)),x=>c[x%62]).join("")}
 async function spLogin(cid){
   const v=rnd(64),d=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(v));
@@ -677,7 +688,8 @@ async function spLogin(cid){
 }
 async function spToken(body){
   const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:sp.cid,...body})});
-  if(!r.ok){let d="";try{const x=await r.json();d=x.error_description||x.error||""}catch(e){}throw new Error("token "+r.status+(d?" ("+d+")":""))}
+  logc("inlog ("+body.grant_type+") → "+r.status);
+  if(!r.ok){let d="";try{const x=await r.json();d=x.error_description||x.error||""}catch(e){}logc("  "+d);throw new Error("token "+r.status+(d?" ("+d+")":""))}
   const j=await r.json();
   sp.access=j.access_token;sp.exp=Date.now()+(j.expires_in-60)*1000;if(j.refresh_token)sp.refresh=j.refresh_token;spSave();
 }
@@ -689,11 +701,15 @@ async function spFinish(){
   try{await spToken({grant_type:"authorization_code",code,redirect_uri:REDIR,code_verifier:sp.verifier});delete sp.verifier;spSave()}
   catch(e){spErr="Verbinden mislukt. Controleer of de Client ID en de redirect-URI exact kloppen en probeer opnieuw."}
 }
-async function api(method,path,body){
-  if(Date.now()>(sp.exp||0))await spToken({grant_type:"refresh_token",refresh_token:sp.refresh});
+async function api(method,path,body,again){
+  if(!refreshing)spSync();
+  if(!sp.refresh)throw new Error("token none");
+  if(Date.now()>(sp.exp||0))await spRefresh();
   const r=await fetch("https://api.spotify.com/v1"+path,{method,headers:{Authorization:"Bearer "+sp.access,...(body?{"Content-Type":"application/json"}:{})},body:body?JSON.stringify(body):undefined});
   let j=null,t="";try{t=await r.text();j=t?JSON.parse(t):null}catch(e){}
   const why=((j&&j.error&&(j.error.message||j.error.reason))||(j?"":t)||"").toString().trim().slice(0,200);
+  logc(method+" "+path.split("?")[0].replace("/me/player","player")+" → "+r.status+(why?" "+why.slice(0,80):""));
+  if(r.status===401&&!again){await spRefresh();return api(method,path,body,true)}
   return{ok:r.ok,status:r.status,j,why};
 }
 const norm=x=>x.toLowerCase().normalize("NFD").replace(/[^a-z0-9]/g,"");
@@ -703,6 +719,7 @@ async function spUri(i){
   const clean=x=>x.replace(/\(.*?\)/g," ").replace(/[^\p{L}\p{N}'.& ]/gu," ").replace(/\s+/g," ").trim();
   const r=await api("GET","/search?type=track&limit=5&q="+encodeURIComponent(clean(s.t)+" "+clean(s.a)));
   if(!r.ok)throw new Error("search "+r.status+(r.why?": "+r.why:""));
+  sp.uris=sp.uris||{};
   const items=(r.j&&r.j.tracks&&r.j.tracks.items)||[];
   if(!items.length)return null;
   const want=norm(s.a);
@@ -721,11 +738,17 @@ async function spPlay(){
     const d=await api("GET","/me/player/devices"),list=((d.j&&d.j.devices)||[]).filter(x=>!x.is_restricted);
     if(!st||st.cur!==cur)return;
     if(d.status===401){sp={cid:sp.cid};spSave();return say("Spotify-verbinding verlopen. Verbind opnieuw via Stoppen.")}
-    if(!list.length)return say("Geen speler gevonden. Open de Spotify-app op deze iPad, laat een nummer doorspelen en tik op Speel opnieuw.");
-    const dev=list.find(x=>x.type==="Tablet"||/ipad/i.test(x.name))||list.find(x=>x.is_active)||list[0];
+    logc("spelers: "+(list.map(x=>x.name+(x.is_active?" (actief)":"")).join(", ")||"geen"));
+    const isPad=x=>x.type==="Tablet"||/ipad/i.test(x.name);
+    let dev=list.find(isPad);
+    if(dev){sp.pad={id:dev.id,name:dev.name,type:dev.type};spSave()}
+    else if(sp.pad)dev=sp.pad;
+    else dev=list.find(x=>x.is_active)||list[0];
+    if(!dev)return say("Geen speler gevonden. Open de Spotify-app op deze iPad, laat een nummer doorspelen en tik op Speel opnieuw.");
     let r=await api("PUT","/me/player/play?device_id="+encodeURIComponent(dev.id),body);
     if(!st||st.cur!==cur)return;
     if(r.status===401){sp={cid:sp.cid};spSave();return say("Spotify-verbinding verlopen. Verbind opnieuw via Stoppen.")}
+    if(r.status===404&&!list.some(x=>x.id===dev.id))return say("De iPad is bij Spotify in slaap gevallen. Open de Spotify-app, tik op afspelen, ga terug en tik op Speel opnieuw.");
     if(!r.ok)return say("Spotify speelt niet af (code "+r.status+(r.why?": "+r.why:"")+"). Open de Spotify-app en tik op Speel opnieuw.");
     spDev=dev.name||"";
     if((sp.len??30)>0)pauseT=setTimeout(spPause,(sp.len??30)*1000);
@@ -734,6 +757,7 @@ async function spPlay(){
 }
 function spErrMsg(e){
   const m=String((e&&e.message)||e);
+  if(m==="token none")return "Niet meer verbonden met Spotify. Tik op Stoppen en verbind opnieuw.";
   if(/^(token 400|search 401)/.test(m)){sp={cid:sp.cid};spSave();return "Spotify-inlog is verlopen ("+m+"). Tik op Stoppen en verbind opnieuw."}
   if(/^search 403/.test(m))return "Spotify weigert het zoeken ("+m+"). Log in met het account dat de app in het dashboard heeft gemaakt, en dat moet Premium hebben.";
   if(/^search 429/.test(m))return "Spotify krijgt te veel verzoeken ("+m+"). Wacht een minuut en tik op Speel opnieuw.";
