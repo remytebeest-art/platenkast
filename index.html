@@ -86,7 +86,17 @@ a.mini{color:inherit;text-decoration:none;display:inline-block}
 .pill.on{background:var(--paper);color:var(--ink);border-color:var(--paper)}
 .pill.on::before{content:"";width:10px;height:10px;border-radius:50%;background:var(--accent)}
 
-.stage{display:flex;align-items:center;justify-content:center;gap:clamp(18px,4vw,48px);min-height:0;flex-wrap:wrap}
+.stage{display:flex;align-items:flex-start;justify-content:center;gap:clamp(18px,4vw,48px);min-height:0;flex-wrap:wrap;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.stage>*{margin-block:auto}
+.facts{display:flex;gap:14px;align-items:flex-start;background:rgba(0,0,0,.24);border-radius:8px;padding:12px 14px;font-size:15px;line-height:1.45;flex:1 1 340px;max-width:520px;max-height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.facts img{width:92px;height:92px;border-radius:4px;flex:none;object-fit:cover;box-shadow:0 3px 0 rgba(0,0,0,.35)}
+.facts .fx{min-width:0}
+.facts h3{font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--accent);margin:10px 0 2px;font-weight:800}
+.facts p{margin:0}
+.facts .meta{color:var(--muted);font-size:14px}
+.facts .src{font-size:12px;color:var(--muted);margin-top:8px}
+.facts a{color:var(--paper)}
+@media (max-width:520px){.facts img{width:64px;height:64px}}
 .vinyl{
   width:clamp(120px,22vh,210px);aspect-ratio:1;border-radius:50%;flex:none;
   background:
@@ -584,6 +594,7 @@ function draw(){
   if(!st.deck.length){st.deck=shuffle(st.discard);st.discard=[]}
   if(!st.deck.length){st.phase="win";st.cur=null;return}
   st.cur=st.deck.pop();st.sel=null;st.res=null;st.phase="place";st.reveal=false;if(musicOn())spMsg="";
+  loadInfo(st.cur).catch(()=>{});
 }
 function show(){$("setup").hidden=true;$("game").hidden=false;render()}
 function confirmPlace(){
@@ -621,7 +632,7 @@ function render(){
     g.innerHTML=h;return;
   }
   const s=S[st.cur],res=st.res,q=encodeURIComponent(s.a+" "+s.t);
-  h+=`<section class="stage"><div class="vinyl ${res?"stop":""}" style="${res?"--lab:var(--"+(res.ok?"good":"bad")+")":""}"><span>${res?s.y:"?"}</span></div>
+  h+=`<section class="stage">${res?"":`<div class="vinyl"><span>?</span></div>`}
     <div class="info"><div class="who">${solo?"Jouw beurt":"Beurt voor "+esc(p.name)}</div>
     `;
   if(musicOn()&&!res&&!st.reveal){
@@ -641,7 +652,15 @@ function render(){
   }else{
     h+=`<span class="msg ${res.ok?"good":"bad"}">${res.ok?"✓ Goed! De plaat blijft liggen.":"✗ Fout! Het was "+s.y+", de plaat gaat terug."}</span><button class="btn" data-act="next">${res.ok&&p.cards.length>=st.target?"Bekijk de uitslag":"Volgende plaat"}</button>`;
   }
-  h+=`</div></div></section>`+tl(p,res);
+  h+=`</div></div>`;
+  if(res){
+    h+=factsHTML(st.cur);
+    const k=s.a+"|"+s.t,cur=st.cur;
+    if(!info[k])loadInfo(cur).then(()=>{if(st&&st.cur===cur&&st.phase==="result")render()}).catch(()=>{
+      info[k]={song:null,art:null};if(st&&st.cur===cur&&st.phase==="result")render();delete info[k];
+    });
+  }
+  h+=`</section>`+tl(p,res);
   g.innerHTML=h;
   const L=g.querySelector(".log");if(L)L.scrollTop=L.scrollHeight;
   const f=g.querySelector(".slot.sel,.card.good,.card.bad");
@@ -786,9 +805,15 @@ function playCur(){if(cfg.src==="frag")fragPlay();else spPlay()}
 function stopMusic(){AU.pause();if(cfg.src==="spotify")spPause()}
 function unlockAudio(){if(cfg.src!=="frag"||AU.dataset.u)return;AU.src=SILENT;AU.play().then(()=>{AU.dataset.u="1"}).catch(()=>{})}
 const BAD=/karaoke|originally performed|made famous|in the style of|tribute|backing track|instrumental version|cover version/i;
-async function prevUrl(i){
+const prevBusy={};
+function prevUrl(i){
+  const k=S[i].a+"|"+S[i].t;
+  if(k in prev&&(prev[k]===null||k in meta))return Promise.resolve(prev[k]);
+  return prevBusy[k]||(prevBusy[k]=_prevUrl(i).finally(()=>{delete prevBusy[k]}));
+}
+async function _prevUrl(i){
   const s=S[i],k=s.a+"|"+s.t;
-  if(k in prev)return prev[k];
+  if(k in prev&&(prev[k]===null||k in meta))return prev[k];
   const clean=x=>x.replace(/\(.*?\)/g," ").replace(/[^\p{L}\p{N}'.& ]/gu," ").replace(/\s+/g," ").trim();
   const r=await fetch("https://itunes.apple.com/search?"+new URLSearchParams({term:clean(s.t)+" "+clean(s.a),entity:"song",limit:"15",country:"NL"}));
   logc("fragment zoeken → "+r.status);
@@ -800,8 +825,62 @@ async function prevUrl(i){
   const tm=x=>{const n=norm(x.trackName);return !!n&&(n.includes(tw)||tw.includes(n))};
   const hit=items.find(x=>am(x)&&tm(x))||(items[0]&&am(items[0])?items[0]:null);
   prev[k]=hit?hit.previewUrl:null;
-  try{localStorage.setItem("platenkast-prev",JSON.stringify(prev))}catch(e){}
+  if(hit)meta[k]={alb:(hit.collectionName||"").replace(/ - (Single|EP)$/,""),img:(hit.artworkUrl100||"").replace("100x100bb","300x300bb"),gen:hit.primaryGenreName||""};
+  try{localStorage.setItem("platenkast-prev",JSON.stringify(prev));localStorage.setItem("platenkast-meta",JSON.stringify(meta))}catch(e){}
   return prev[k];
+}
+
+/* ---------- Weetjes na elke plaat: Wikipedia (nl, anders en) + albumgegevens ---------- */
+let meta={},info={};const infoBusy={};
+try{meta=JSON.parse(localStorage.getItem("platenkast-meta")||"{}")}catch(e){}
+try{info=JSON.parse(localStorage.getItem("platenkast-info")||"{}")}catch(e){}
+const MUS=/zang|band|groep|muzik|rapper|duo|\bdj\b|producer|singer|musician|artiest|componist|liedjes|trio|orkest|songwriter|cabaretier|entertainer|group|rock|pop|rap/i;
+const DISAMB=/may refer|kan verwijzen|verwijst naar|kan betrekking hebben/i;
+const firstArtist=a=>a.split(/,| & | feat\.? | x /i)[0].trim();
+async function wikiSearch(lang,q,n){
+  const r=await fetch(`https://${lang}.wikipedia.org/w/api.php?`+new URLSearchParams({action:"query",format:"json",origin:"*",generator:"search",gsrsearch:q,gsrlimit:"6",prop:"extracts",exintro:"1",explaintext:"1",exsentences:String(n),redirects:"1"}));
+  if(!r.ok)throw new Error("wikipedia "+r.status);
+  const j=await r.json();
+  return Object.values((j.query&&j.query.pages)||{}).sort((a,b)=>a.index-b.index).map(p=>({...p,lang}));
+}
+function loadInfo(i){
+  const s=S[i],k=s.a+"|"+s.t;
+  if(info[k])return Promise.resolve(info[k]);
+  if(infoBusy[k])return infoBusy[k];
+  return infoBusy[k]=(async()=>{
+    try{await prevUrl(i)}catch(e){}
+    const tw=norm(s.t.replace(/\(.*?\)/g,""))||norm(s.t),fa=firstArtist(s.a),an=norm(fa);
+    let song=null,art=null;
+    for(const L of ["nl","en"]){
+      const ps=await wikiSearch(L,s.t.replace(/\(.*?\)/g," ")+" "+fa,3);
+      song=ps.find(p=>p.extract&&norm(p.title).includes(tw)&&norm(p.extract).includes(an)&&!DISAMB.test(p.extract));
+      if(song)break;
+    }
+    for(const L of song?[song.lang,"en"]:["nl","en"]){
+      const ps=await wikiSearch(L,fa,2);
+      art=ps.find(p=>{const n=norm(p.title.replace(/\(.*?\)/g,""));return p.extract&&(n===an||n.startsWith(an)||(an.startsWith(n)&&n.length>3))&&MUS.test(p.extract)&&!DISAMB.test(p.extract)});
+      if(art)break;
+    }
+    const pick=p=>p&&{t:p.title,x:p.extract.replace(/\s+/g," ").trim(),u:`https://${p.lang}.wikipedia.org/wiki/${encodeURIComponent(p.title.replace(/ /g,"_"))}`,l:p.lang};
+    info[k]={song:pick(song),art:pick(art)};
+    try{localStorage.setItem("platenkast-info",JSON.stringify(info))}catch(e){}
+    return info[k];
+  })().finally(()=>{delete infoBusy[k]});
+}
+function factsHTML(i){
+  const s=S[i],k=s.a+"|"+s.t,m=meta[k],f=info[k];
+  let h=`<div class="facts">`;
+  if(m&&m.img)h+=`<img src="${esc(m.img)}" alt="Albumhoes van ${esc(m.alb||s.t)}">`;
+  h+=`<div class="fx">`;
+  if(m&&m.alb)h+=`<p class="meta">Van het album <i>${esc(m.alb)}</i>${m.gen?" · "+esc(m.gen):""}</p>`;
+  if(!f)h+=`<p class="meta">Even informatie opzoeken…</p>`;
+  else{
+    if(f.song)h+=`<h3>Over het nummer</h3><p>${esc(f.song.x)}</p>`;
+    if(f.art)h+=`<h3>Over ${esc(f.art.t.replace(/\s*\(.*?\)\s*/g,""))}</h3><p>${esc(f.art.x)}</p>`;
+    if(!f.song&&!f.art)h+=`<p class="meta">Geen extra informatie gevonden over deze plaat.</p>`;
+    else h+=`<p class="src">Bron: `+[f.song,f.art].filter(Boolean).map(x=>`<a href="${esc(x.u)}" target="_blank" rel="noopener">Wikipedia${x.l==="en"?" (Engels)":""}</a>`).join(" · ")+`</p>`;
+  }
+  return h+`</div></div>`;
 }
 function fragPlay(){
   if(!st||st.cur==null)return;
