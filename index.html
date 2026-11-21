@@ -670,7 +670,7 @@ async function spLogin(cid){
 }
 async function spToken(body){
   const r=await fetch("https://accounts.spotify.com/api/token",{method:"POST",headers:{"Content-Type":"application/x-www-form-urlencoded"},body:new URLSearchParams({client_id:sp.cid,...body})});
-  if(!r.ok)throw new Error("token "+r.status);
+  if(!r.ok){let d="";try{const x=await r.json();d=x.error_description||x.error||""}catch(e){}throw new Error("token "+r.status+(d?" ("+d+")":""))}
   const j=await r.json();
   sp.access=j.access_token;sp.exp=Date.now()+(j.expires_in-60)*1000;if(j.refresh_token)sp.refresh=j.refresh_token;spSave();
 }
@@ -694,7 +694,7 @@ async function spUri(i){
   if(sp.uris[k])return sp.uris[k];
   const clean=x=>x.replace(/\(.*?\)/g," ").replace(/[^\p{L}\p{N}'.& ]/gu," ").replace(/\s+/g," ").trim();
   const r=await api("GET","/search?type=track&limit=5&q="+encodeURIComponent(clean(s.t)+" "+clean(s.a)));
-  if(!r.ok)throw new Error("search "+r.status);
+  if(!r.ok)throw new Error("search "+r.status+(r.j&&r.j.error&&r.j.error.message?" ("+r.j.error.message+")":""));
   const items=(r.j&&r.j.tracks&&r.j.tracks.items)||[];
   if(!items.length)return null;
   const want=norm(s.a);
@@ -719,10 +719,18 @@ async function spPlay(){
     }
     if(!st||st.cur!==cur)return;
     if(r.status===401){sp={cid:sp.cid};spSave();return say("Spotify-verbinding verlopen. Verbind opnieuw via Stoppen.")}
-    if(!r.ok)return say("Spotify speelt niet af (code "+r.status+"). Open de Spotify-app en tik op Speel opnieuw.");
+    if(!r.ok)return say("Spotify speelt niet af (code "+r.status+(r.j&&r.j.error&&r.j.error.message?": "+r.j.error.message:"")+"). Open de Spotify-app en tik op Speel opnieuw.");
     if(spMsg)say("");
     if((sp.len??30)>0)pauseT=setTimeout(spPause,(sp.len??30)*1000);
-  }catch(e){say("Geen contact met Spotify. Controleer de internetverbinding en tik op Speel opnieuw.")}
+  }catch(e){say(spErrMsg(e))}
+}
+function spErrMsg(e){
+  const m=String((e&&e.message)||e);
+  if(/^(token 400|search 401)/.test(m)){sp={cid:sp.cid};spSave();return "Spotify-inlog is verlopen ("+m+"). Tik op Stoppen en verbind opnieuw."}
+  if(/^search 403/.test(m))return "Spotify weigert het zoeken ("+m+"). Log in met het account dat de app in het dashboard heeft gemaakt, en dat moet Premium hebben.";
+  if(/^search 429/.test(m))return "Spotify krijgt te veel verzoeken ("+m+"). Wacht een minuut en tik op Speel opnieuw.";
+  if(/^(token|search) /.test(m))return "Spotify geeft een fout: "+m+". Tik op Speel opnieuw.";
+  return "Geen contact met Spotify ("+m+"). Controleer de internetverbinding en tik op Speel opnieuw.";
 }
 function spPause(){clearTimeout(pauseT);if(spOn())api("PUT","/me/player/pause").catch(()=>{})}
 
