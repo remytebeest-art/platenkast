@@ -169,11 +169,11 @@ a.mini{color:inherit;text-decoration:none;display:inline-block}
       </section>
     </div>
     <section>
-      <h2>Muziek via Spotify</h2>
+      <h2>Muziek</h2>
       <div class="sp" id="spbox"></div>
     </section>
     <button class="go" id="go">Start het spel</button>
-    <p class="note">Zonder Spotify-verbinding speel je met zichtbare titels. Jaartallen zijn het jaar van eerste uitgave.</p>
+    <p class="note">Kies je Spotify zonder verbinding, dan speel je met zichtbare titels. Fragmenten via Apple Music-voorbeelden. Jaartallen zijn het jaar van eerste uitgave.</p>
   </div>
 </main>
 
@@ -523,7 +523,7 @@ const $=id=>document.getElementById(id);
 const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]]}return a};
 
-let cfg={theme:"mix",n:2,target:8,names:["","","",""]};
+let cfg={theme:"mix",n:2,target:8,names:["","","",""],src:"frag"};
 try{Object.assign(cfg,JSON.parse(localStorage.getItem("platenkast-cfg")||"{}"))}catch(e){}
 let st=null, quitArmed=false;
 let sp={},spErr="",spMsg="",spDev="",pauseT=null,showLog=false;
@@ -539,12 +539,13 @@ function drawSetup(){
   drawSp();
 }
 function drawSp(){
-  let h="";
-  if(location.protocol!=="https:")h=`<span class="err">Spotify werkt alleen als deze pagina op een https-adres staat.</span>`;
-  else if(spOn())h=`<span class="ok">Verbonden met Spotify${sp.who?" als "+esc(sp.who):""}</span><span class="note">Open de Spotify-app op deze iPad en speel daar even iets af, zodat de iPad als speler klaarstaat. Sluit de Spotify-app niet af. Titels blijven verborgen tot de plaat ligt.</span>
+  let h=`<div class="chips">`+[["frag","Fragmenten in Safari"],["spotify","Spotify-app (hele nummers)"]].map(x=>`<button class="chip" data-src="${x[0]}" aria-pressed="${cfg.src===x[0]}">${x[1]}</button>`).join("")+`</div>`;
+  if(cfg.src==="frag"){$("spbox").innerHTML=h+`<span class="note">Speelt van elk nummer 30 seconden af, direct hier in Safari. Geen account of app nodig. Het fragment herhaalt zich tot de plaat ligt, en titels blijven verborgen tot dan.</span>`;return}
+  if(location.protocol!=="https:")h+=`<span class="err">Spotify werkt alleen als deze pagina op een https-adres staat.</span>`;
+  else if(spOn())h+=`<span class="ok">Verbonden met Spotify${sp.who?" als "+esc(sp.who):""}</span><span class="note">Open de Spotify-app op deze iPad en speel daar even iets af, zodat de iPad als speler klaarstaat. Sluit de Spotify-app niet af. Titels blijven verborgen tot de plaat ligt.</span>
     <div><h2>Lengte fragment</h2><p class="note" style="margin:0 0 8px">Het fragment herhaalt zich tot de plaat ligt; daarna speelt het nummer door. Zo blijft Spotify op de iPad wakker.</p><div class="chips">`+[[20,"20 sec"],[30,"30 sec"],[45,"45 sec"],[0,"Heel nummer"]].map(x=>`<button class="chip" data-len="${x[0]}" aria-pressed="${(sp.len??30)===x[0]}">${x[1]}</button>`).join("")+`</div></div>
     <div><button class="mini" data-sp="off">Verbinding verbreken</button></div>`;
-  else h=`<label for="cid" class="note">Client ID van je eigen Spotify-app</label><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 tekens" value="${esc(sp.cid||"")}">
+  else h+=`<label for="cid" class="note">Client ID van je eigen Spotify-app</label><input id="cid" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="32 tekens" value="${esc(sp.cid||"")}">
     <span class="note">Redirect-URI om in je Spotify-app in te vullen: <code>${esc(REDIR)}</code></span>
     <div><button class="mini" data-sp="on">Verbind met Spotify</button></div>`;
   if(spErr)h+=`<span class="err">${esc(spErr)}</span>`;
@@ -557,6 +558,7 @@ $("setup").addEventListener("click",e=>{
   if(b.dataset.theme)cfg.theme=b.dataset.theme;
   else if(b.dataset.n)cfg.n=+b.dataset.n;
   else if(b.dataset.t)cfg.target=+b.dataset.t;
+  else if(b.dataset.src){cfg.src=b.dataset.src;try{localStorage.setItem("platenkast-cfg",JSON.stringify(cfg))}catch(e){}}
   else if(b.dataset.len!==undefined){sp.len=+b.dataset.len;spSave()}
   else if(b.dataset.sp==="off"){sp={cid:sp.cid};spSave();spErr=""}
   else if(b.dataset.sp==="on"){
@@ -567,7 +569,7 @@ $("setup").addEventListener("click",e=>{
   else if(b.id==="go"){newGame();return}
   drawSetup();
 });
-function showSetup(){spPause();st=null;$("game").hidden=true;$("setup").hidden=false;drawSetup()}
+function showSetup(){stopMusic();st=null;$("game").hidden=true;$("setup").hidden=false;drawSetup()}
 
 /* ---------- Spel ---------- */
 function newGame(){
@@ -576,12 +578,12 @@ function newGame(){
   const deck=shuffle(S.map((s,i)=>i).filter(i=>th.f(S[i])));
   st={theme:th.id,target:cfg.target,turn:0,turns:0,deck,discard:[],sel:null,phase:"place",res:null,
       players:Array.from({length:cfg.n},(_,i)=>({name:cfg.names[i]||"Speler "+(i+1),cards:[deck.pop()]}))};
-  draw();show();spPlay();
+  unlockAudio();draw();show();playCur();
 }
 function draw(){
   if(!st.deck.length){st.deck=shuffle(st.discard);st.discard=[]}
   if(!st.deck.length){st.phase="win";st.cur=null;return}
-  st.cur=st.deck.pop();st.sel=null;st.res=null;st.phase="place";st.reveal=false;if(spOn())spMsg="";
+  st.cur=st.deck.pop();st.sel=null;st.res=null;st.phase="place";st.reveal=false;if(musicOn())spMsg="";
 }
 function show(){$("setup").hidden=true;$("game").hidden=false;render()}
 function confirmPlace(){
@@ -593,11 +595,11 @@ function confirmPlace(){
 }
 function next(){
   const p=st.players[st.turn];
-  if(st.res.ok&&p.cards.length>=st.target){st.phase="win";spPause();render();return}
+  if(st.res.ok&&p.cards.length>=st.target){st.phase="win";stopMusic();render();return}
   if(!st.res.ok)st.discard.push(st.cur);
   st.turn=(st.turn+1)%st.players.length;
   draw();render();
-  if(st.phase==="place")spPlay();else spPause();
+  if(st.phase==="place")playCur();else stopMusic();
 }
 const cardHTML=(i,cls)=>{const s=S[i];return `<div class="card ${cls||""}" style="--c:${col(s.y)}"><div class="yr">${s.y}</div><div class="tx"><b>${esc(s.a)}</b><span>${esc(s.t)}</span></div></div>`};
 
@@ -622,13 +624,13 @@ function render(){
   h+=`<section class="stage"><div class="vinyl ${res?"stop":""}" style="${res?"--lab:var(--"+(res.ok?"good":"bad")+")":""}"><span>${res?s.y:"?"}</span></div>
     <div class="info"><div class="who">${solo?"Jouw beurt":"Beurt voor "+esc(p.name)}</div>
     `;
-  if(spOn()&&!res&&!st.reveal){
-    h+=`<h1 class="title">Welke plaat hoor je?</h1><p class="artist">${esc(spMsg||(spDev?"Speelt af op "+spDev+". ":"")+"Luister en leg hem op zijn plek.")}</p>
-    <div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="reveal">Toon titel</button>${spMsg?`<a class="mini" href="spotify:">Open Spotify</a>`:""}${spMsg&&LOG.length?`<button class="mini" data-act="log">${showLog?"Verberg details":"Details"}</button>`:""}</div>`;
+  if(musicOn()&&!res&&!st.reveal){
+    h+=`<h1 class="title">Welke plaat hoor je?</h1><p class="artist">${esc(spMsg||(cfg.src==="spotify"&&spDev?"Speelt af op "+spDev+". ":"")+"Luister en leg hem op zijn plek.")}</p>
+    <div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="reveal">Toon titel</button>${spMsg&&cfg.src==="spotify"?`<a class="mini" href="spotify:">Open Spotify</a>`:""}${spMsg&&LOG.length?`<button class="mini" data-act="log">${showLog?"Verberg details":"Details"}</button>`:""}</div>`;
     if(spMsg&&LOG.length&&showLog)h+=`<pre class="log">${esc(LOG.join("\n"))}</pre>`;
   }else{
     h+=`<h1 class="title">${esc(s.t)}</h1><p class="artist">${esc(s.a)}</p>`;
-    h+=spOn()?(res?"":`<div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button></div>`)
+    h+=musicOn()?(res?"":`<div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button></div>`)
       :`<div class="listen">Luister: <a href="https://open.spotify.com/search/${q}" target="_blank" rel="noopener">Spotify</a><a href="https://www.youtube.com/results?search_query=${q}" target="_blank" rel="noopener">YouTube</a></div>`
        +(!res&&spMsg?`<p class="artist" style="color:#ff8a8d;font-size:17px">${esc(spMsg)}</p>`+(LOG.length?`<pre class="log">${esc(LOG.join("\n"))}</pre>`:""):"");
   }
@@ -660,8 +662,7 @@ $("game").addEventListener("click",e=>{
   const a=b.dataset.act;
   if(a==="quit"){ if(quitArmed){quitArmed=false;showSetup()} else{quitArmed=true;render();setTimeout(()=>{if(quitArmed&&st){quitArmed=false;render()}},3000)} return}
   quitArmed=false;
-  if(a==="play")spPlay();
-  else if(a==="pause")spPause();
+  if(a==="play")playCur();
   else if(a==="reveal"){st.reveal=true;render()}
   else if(a==="log"){showLog=!showLog;render()}
   else if(a==="ok")confirmPlace();
@@ -775,6 +776,50 @@ function spErrMsg(e){
   return "Geen contact met Spotify ("+m+"). Controleer de internetverbinding en tik op Speel opnieuw.";
 }
 function spPause(){clearInterval(pauseT);if(spOn())api("PUT","/me/player/pause").catch(()=>{})}
+
+/* ---------- Fragmenten: 30 seconden via Apple Music-voorbeelden, direct in Safari ---------- */
+const AU=new Audio();AU.loop=true;AU.preload="auto";
+const SILENT="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=";
+let prev={};try{prev=JSON.parse(localStorage.getItem("platenkast-prev")||"{}")}catch(e){}
+const musicOn=()=>cfg.src==="frag"||spOn();
+function playCur(){if(cfg.src==="frag")fragPlay();else spPlay()}
+function stopMusic(){AU.pause();if(cfg.src==="spotify")spPause()}
+function unlockAudio(){if(cfg.src!=="frag"||AU.dataset.u)return;AU.src=SILENT;AU.play().then(()=>{AU.dataset.u="1"}).catch(()=>{})}
+const BAD=/karaoke|originally performed|made famous|in the style of|tribute|backing track|instrumental version|cover version/i;
+async function prevUrl(i){
+  const s=S[i],k=s.a+"|"+s.t;
+  if(k in prev)return prev[k];
+  const clean=x=>x.replace(/\(.*?\)/g," ").replace(/[^\p{L}\p{N}'.& ]/gu," ").replace(/\s+/g," ").trim();
+  const r=await fetch("https://itunes.apple.com/search?"+new URLSearchParams({term:clean(s.t)+" "+clean(s.a),entity:"song",limit:"15",country:"NL"}));
+  logc("fragment zoeken → "+r.status);
+  if(!r.ok)throw new Error("zoeken "+r.status);
+  const j=await r.json();
+  const items=(j.results||[]).filter(x=>x.previewUrl&&!BAD.test(x.trackName+" "+x.artistName+" "+(x.collectionName||"")));
+  const want=norm(s.a),tw=norm(s.t.replace(/\(.*?\)/g,""))||norm(s.t);
+  const am=x=>{const n=norm(x.artistName);return !!n&&(want.includes(n)||n.includes(want))};
+  const tm=x=>{const n=norm(x.trackName);return !!n&&(n.includes(tw)||tw.includes(n))};
+  const hit=items.find(x=>am(x)&&tm(x))||(items[0]&&am(items[0])?items[0]:null);
+  prev[k]=hit?hit.previewUrl:null;
+  try{localStorage.setItem("platenkast-prev",JSON.stringify(prev))}catch(e){}
+  return prev[k];
+}
+function fragPlay(){
+  if(!st||st.cur==null)return;
+  const cur=st.cur,k=S[cur].a+"|"+S[cur].t;
+  const go=url=>{
+    if(!st||st.cur!==cur)return;
+    if(!url){AU.pause();return say("Geen fragment gevonden voor deze plaat. Tik op Toon titel.")}
+    if(AU.src!==url)AU.src=url;
+    AU.currentTime=0;
+    AU.play().then(()=>{if(spMsg)say("")}).catch(e=>{
+      logc("afspelen: "+(e&&e.name||e));
+      say(e&&e.name==="NotAllowedError"?"Tik op Speel opnieuw om het fragment te horen.":"Het fragment speelt niet af. Tik op Speel opnieuw.");
+    });
+  };
+  if(k in prev)go(prev[k]);
+  else prevUrl(cur).then(go).catch(e=>say("Geen contact met de muziekdienst ("+e.message+"). Controleer de internetverbinding en tik op Speel opnieuw."));
+  st.deck.slice(-2).forEach(i=>prevUrl(i).catch(()=>{}));
+}
 
 /* ---------- Opstarten ---------- */
 spFinish().then(showSetup);
