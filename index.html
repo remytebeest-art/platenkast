@@ -526,7 +526,7 @@ const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()
 let cfg={theme:"mix",n:2,target:8,names:["","","",""]};
 try{Object.assign(cfg,JSON.parse(localStorage.getItem("platenkast-cfg")||"{}"))}catch(e){}
 let st=null, quitArmed=false;
-let sp={},spErr="",spMsg="",spDev="",pauseT=null;
+let sp={},spErr="",spMsg="",spDev="",pauseT=null,showLog=false;
 try{sp=JSON.parse(localStorage.getItem("platenkast-sp")||"{}")}catch(e){}
 const REDIR=location.origin+location.pathname;
 
@@ -624,8 +624,8 @@ function render(){
     `;
   if(spOn()&&!res&&!st.reveal){
     h+=`<h1 class="title">Welke plaat hoor je?</h1><p class="artist">${esc(spMsg||(spDev?"Speelt af op "+spDev+". ":"")+"Luister en leg hem op zijn plek.")}</p>
-    <div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="reveal">Toon titel</button>${spMsg?`<a class="mini" href="spotify:">Open Spotify</a>`:""}</div>`;
-    if(spMsg&&LOG.length)h+=`<pre class="log">${esc(LOG.join("\n"))}</pre>`;
+    <div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button><button class="mini" data-act="reveal">Toon titel</button>${spMsg?`<a class="mini" href="spotify:">Open Spotify</a>`:""}${spMsg&&LOG.length?`<button class="mini" data-act="log">${showLog?"Verberg details":"Details"}</button>`:""}</div>`;
+    if(spMsg&&LOG.length&&showLog)h+=`<pre class="log">${esc(LOG.join("\n"))}</pre>`;
   }else{
     h+=`<h1 class="title">${esc(s.t)}</h1><p class="artist">${esc(s.a)}</p>`;
     h+=spOn()?(res?"":`<div class="ctl"><button class="mini" data-act="play">Speel opnieuw</button></div>`)
@@ -663,6 +663,7 @@ $("game").addEventListener("click",e=>{
   if(a==="play")spPlay();
   else if(a==="pause")spPause();
   else if(a==="reveal"){st.reveal=true;render()}
+  else if(a==="log"){showLog=!showLog;render()}
   else if(a==="ok")confirmPlace();
   else if(a==="next")next();
   else if(a==="again")newGame();
@@ -744,10 +745,10 @@ async function spPlay(){
     if(d.status===401){sp={cid:sp.cid};spSave();return say("Spotify-verbinding verlopen. Verbind opnieuw via Stoppen.")}
     logc("spelers"+(sp.who?" van "+sp.who:"")+": "+(list.map(x=>x.name+(x.is_active?" (actief)":"")).join(", ")||"geen"));
     const isPad=x=>x.type==="Tablet"||/ipad/i.test(x.name);
+    const isWeb=x=>/web player \(safari\)/i.test(x.name)&&/iPad|iPhone|Macintosh/.test(navigator.userAgent)&&navigator.maxTouchPoints>1;
     let dev=list.find(isPad);
     if(dev){sp.pad={id:dev.id,name:dev.name,type:dev.type};spSave()}
-    else if(sp.pad)dev=sp.pad;
-    else dev=list.find(x=>x.is_active)||list[0];
+    else dev=list.find(isWeb)||sp.pad||list.find(x=>x.is_active)||list[0];
     if(!dev)return say("Geen speler gevonden. Open de Spotify-app op deze iPad, laat een nummer doorspelen en tik op Speel opnieuw.");
     let r=await api("PUT","/me/player/play?device_id="+encodeURIComponent(dev.id),body);
     if(!st||st.cur!==cur)return;
@@ -761,7 +762,7 @@ async function spPlay(){
       if(st&&st.cur===cur&&st.phase==="place")api("PUT","/me/player/seek?position_ms=0&device_id="+encodeURIComponent(dev.id)).catch(()=>{});
       else clearInterval(pauseT);
     },len*1000);
-    say(dev.type!=="Tablet"&&!/ipad/i.test(dev.name)?"Speelt af op "+spDev+", niet op de iPad. Sluit Spotify op dat apparaat, open de Spotify-app op de iPad en tik op Speel opnieuw.":"");
+    say(!isPad(dev)&&!isWeb(dev)?"Speelt af op "+spDev+", niet op de iPad. Sluit Spotify op dat apparaat, open de Spotify-app op de iPad en tik op Speel opnieuw.":"");
   }catch(e){say(spErrMsg(e))}
 }
 function spErrMsg(e){
